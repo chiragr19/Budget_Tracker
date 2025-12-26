@@ -13,6 +13,8 @@ const CURRENCY_SYMBOLS = {
   SGD: 'S$',
 };
 
+const CURRENCY_LIST = Object.keys(CURRENCY_SYMBOLS);
+
 const loadFromStorage = (key, fallback) => {
   if (typeof window === 'undefined') return fallback;
   try {
@@ -49,13 +51,16 @@ function App() {
   const [currentFilter, setCurrentFilter] = useState('all');
   const [currency, setCurrency] = useState(() => loadPrimitive('budgetCurrency', 'USD'));
   const [isDarkMode, setIsDarkMode] = useState(() => loadPrimitive('darkMode', 'disabled') === 'enabled');
+  const [exchangeRates, setExchangeRates] = useState({});
+  const [ratesLoading, setRatesLoading] = useState(true);
 
-  const [formValues, setFormValues] = useState({
+  const [formValues, setFormValues] = useState(() => ({
     type: 'income',
     label: '',
     amount: '',
     category: '',
-  });
+    entryCurrency: loadPrimitive('budgetCurrency', 'USD'),
+  }));
 
   // Sync dark mode with document and localStorage
   useEffect(() => {
@@ -75,7 +80,44 @@ function App() {
   // Persist currency
   useEffect(() => {
     savePrimitive('budgetCurrency', currency);
-  }, [currency]);
+    // Update form currency when display currency changes
+    if (!editingId) {
+      setFormValues((prev) => ({ ...prev, entryCurrency: currency }));
+    }
+  }, [currency, editingId]);
+
+  // Fetch exchange rates
+  useEffect(() => {
+    const fetchExchangeRates = async () => {
+      try {
+        setRatesLoading(true);
+        // Using exchangerate-api.com free endpoint (no API key required)
+        const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+        const data = await response.json();
+        const rates = data.rates || {};
+        // Ensure USD is included with rate 1 (base currency)
+        rates.USD = 1;
+        setExchangeRates(rates);
+      } catch (error) {
+        console.error('Failed to fetch exchange rates:', error);
+        // Fallback: set USD as base with 1:1 rates
+        const fallbackRates = { USD: 1 };
+        CURRENCY_LIST.forEach((curr) => {
+          if (curr !== 'USD') {
+            fallbackRates[curr] = 1;
+          }
+        });
+        setExchangeRates(fallbackRates);
+      } finally {
+        setRatesLoading(false);
+      }
+    };
+
+    fetchExchangeRates();
+    // Refresh rates every hour
+    const interval = setInterval(fetchExchangeRates, 3600000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleFormChange = (e) => {
     const { id, value } = e.target;
@@ -87,6 +129,8 @@ function App() {
       setFormValues((prev) => ({ ...prev, label: value }));
     } else if (id === 'entryCategory') {
       setFormValues((prev) => ({ ...prev, category: value }));
+    } else if (id === 'entryCurrency') {
+      setFormValues((prev) => ({ ...prev, entryCurrency: value }));
     }
   };
 
@@ -96,6 +140,7 @@ function App() {
       label: '',
       amount: '',
       category: '',
+      entryCurrency: currency,
     });
   };
 
@@ -115,6 +160,7 @@ function App() {
                 label: formValues.label.trim(),
                 amount: amountNumber,
                 category: formValues.category,
+                currency: formValues.entryCurrency,
               }
             : entry,
         ),
@@ -127,6 +173,7 @@ function App() {
         label: formValues.label.trim(),
         amount: amountNumber,
         category: formValues.category,
+        currency: formValues.entryCurrency,
         date: new Date().toISOString(),
       };
       setEntries((prev) => [...prev, newEntry]);
@@ -143,6 +190,7 @@ function App() {
       label: entry.label,
       amount: String(entry.amount),
       category: entry.category,
+      entryCurrency: entry.currency || currency,
     });
     setEditingId(id);
     // Scroll to top form
@@ -164,9 +212,38 @@ function App() {
     }
   };
 
-  const formatCurrency = (amount) => {
-    const symbol = CURRENCY_SYMBOLS[currency] || '$';
-    const decimals = currency === 'JPY' ? 0 : 2;
+  // Convert amount from source currency to target currency
+  // Exchange rates are relative to USD (base currency)
+  const convertCurrency = (amount, fromCurrency, toCurrency) => {
+    if (fromCurrency === toCurrency) return amount;
+    if (Object.keys(exchangeRates).length === 0) return amount;
+    
+    // If rates not loaded yet, return original amount
+    if (!exchangeRates[fromCurrency] && fromCurrency !== 'USD') return amount;
+    if (!exchangeRates[toCurrency] && toCurrency !== 'USD') return amount;
+    
+    // Convert from source currency to USD first
+    let amountInUSD;
+    if (fromCurrency === 'USD') {
+      amountInUSD = amount;
+    } else {
+      // Rate is: 1 USD = X fromCurrency, so X fromCurrency = 1 USD
+      // Therefore: amount fromCurrency = amount / X USD
+      amountInUSD = amount / exchangeRates[fromCurrency];
+    }
+    
+    // Convert from USD to target currency
+    if (toCurrency === 'USD') {
+      return amountInUSD;
+    } else {
+      // Rate is: 1 USD = X toCurrency
+      return amountInUSD * exchangeRates[toCurrency];
+    }
+  };
+
+  const formatCurrency = (amount, targetCurrency = currency) => {
+    const symbol = CURRENCY_SYMBOLS[targetCurrency] || '$';
+    const decimals = targetCurrency === 'JPY' ? 0 : 2;
     return `${symbol}${amount.toFixed(decimals)}`;
   };
 
@@ -190,17 +267,26 @@ function App() {
   );
 
   const summary = useMemo(() => {
+    // Convert all entries to display currency for calculations
     const totalIncome = entries
       .filter((entry) => entry.type === 'income')
-      .reduce((sum, entry) => sum + entry.amount, 0);
+      .reduce((sum, entry) => {
+        const entryCurrency = entry.currency || currency;
+        const convertedAmount = convertCurrency(entry.amount, entryCurrency, currency);
+        return sum + convertedAmount;
+      }, 0);
 
     const totalExpenses = entries
       .filter((entry) => entry.type === 'expense')
-      .reduce((sum, entry) => sum + entry.amount, 0);
+      .reduce((sum, entry) => {
+        const entryCurrency = entry.currency || currency;
+        const convertedAmount = convertCurrency(entry.amount, entryCurrency, currency);
+        return sum + convertedAmount;
+      }, 0);
 
     const balance = totalIncome - totalExpenses;
     return { totalIncome, totalExpenses, balance };
-  }, [entries]);
+  }, [entries, currency, exchangeRates]);
 
   const balanceColor =
     summary.balance < 0
@@ -245,6 +331,11 @@ function App() {
           <p className="text-lg opacity-90 mb-4">
             Track your income and expenses effortlessly
           </p>
+          {ratesLoading && (
+            <p className="text-sm opacity-75 mb-2">
+              Loading exchange rates...
+            </p>
+          )}
           <div className="flex flex-col items-center gap-3 mt-5">
             <div className="flex items-center justify-center gap-3">
               <label
@@ -330,6 +421,9 @@ function App() {
             >
               {formatCurrency(summary.totalIncome)}
             </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              (converted to {currency})
+            </p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg hover:-translate-y-1 hover:shadow-xl transition-all duration-200">
             <h3 className="text-xs text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">
@@ -341,6 +435,9 @@ function App() {
             >
               {formatCurrency(summary.totalExpenses)}
             </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              (converted to {currency})
+            </p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg hover:-translate-y-1 hover:shadow-xl transition-all duration-200">
             <h3 className="text-xs text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">
@@ -348,6 +445,9 @@ function App() {
             </h3>
             <p className={`text-3xl font-bold ${balanceColor}`} id="balance">
               {formatCurrency(summary.balance)}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              (in {currency})
             </p>
           </div>
         </div>
@@ -358,7 +458,7 @@ function App() {
             Add New Entry
           </h2>
           <form id="entryForm" onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-end mb-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 items-end mb-5">
               <div className="flex flex-col">
                 <label
                   htmlFor="entryType"
@@ -441,6 +541,28 @@ function App() {
                   <option value="shopping">Shopping</option>
                   <option value="entertainment">Entertainment</option>
                   <option value="other-expense">Other Expense</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col">
+                <label
+                  htmlFor="entryCurrency"
+                  className="mb-2 font-medium text-gray-700 dark:text-gray-300 text-sm"
+                >
+                  Currency
+                </label>
+                <select
+                  id="entryCurrency"
+                  className="px-3 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-lg text-base bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400"
+                  required
+                  value={formValues.entryCurrency}
+                  onChange={handleFormChange}
+                >
+                  {CURRENCY_LIST.map((curr) => (
+                    <option key={curr} value={curr}>
+                      {curr} ({CURRENCY_SYMBOLS[curr]})
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -538,13 +660,28 @@ function App() {
                           {formatCategory(entry.category)}
                         </span>
                         <span>{formattedDate}</span>
+                        {entry.currency && (
+                          <span className="bg-blue-100 dark:bg-blue-900 px-2.5 py-1 rounded text-gray-800 dark:text-gray-200">
+                            {entry.currency}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className={`text-xl font-bold ${amountColor}`}>
-                        {sign}
-                        {formatCurrency(entry.amount)}
-                      </span>
+                      <div className="flex flex-col items-end">
+                        <span className={`text-xl font-bold ${amountColor}`}>
+                          {sign}
+                          {formatCurrency(entry.amount, entry.currency || currency)}
+                        </span>
+                        {entry.currency && entry.currency !== currency && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            ≈ {formatCurrency(
+                              convertCurrency(entry.amount, entry.currency, currency),
+                              currency
+                            )}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex gap-2">
                         <button
                           type="button"
