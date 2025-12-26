@@ -336,7 +336,10 @@ function App() {
               Loading exchange rates...
             </p>
           )}
-          <div className="flex flex-col items-center gap-3 mt-5">
+          <div
+            id="headerControls"
+            className="flex flex-col items-center gap-3 mt-5"
+          >
             <div className="flex items-center justify-center gap-3">
               <label
                 htmlFor="currencySelect"
@@ -382,10 +385,7 @@ function App() {
                 </option>
               </select>
             </div>
-            <div
-              id="modeSelectorBox"
-              className="hidden flex items-center justify-center gap-3"
-            >
+            <div id="modeSelectorBox" className="hidden items-center justify-center gap-3">
               <label
                 htmlFor="modeSelect"
                 className="text-base font-medium"

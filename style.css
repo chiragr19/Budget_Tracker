@@ -1,0 +1,30 @@
+/* Global styles for Budget Tracker responsive behavior */
+
+/* Default: hide the inline mode selector box, show floating mode button */
+#modeSelectorBox {
+  display: none;
+}
+
+.mode-toggle-desktop {
+  display: flex;
+}
+
+/* At widths <= 500px, move mode control below the currency option */
+@media (max-width: 500px) {
+  /* Hide floating circular mode button on very small screens */
+  .mode-toggle-desktop {
+    display: none !important;
+  }
+
+  /* Show the inline mode selector box under the currency selector */
+  #modeSelectorBox {
+    display: flex !important;
+  }
+
+  /* Slightly tighten vertical spacing for header controls on small screens */
+  #headerControls {
+    gap: 0.5rem;
+  }
+}
+
+
