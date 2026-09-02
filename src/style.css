@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@custom-variantdark (&:where(.dark, .dark *));
+
+
+#modeSelectorBox {
+  display: none;
+}
+
+.mode-toggle-desktop {
+  display: flex;
+}
+
+
+@media (max-width: 500px) {
+  .mode-toggle-desktop {
+    display: none !important;
+  }
+
+  
+  #modeSelectorBox {
+    display: flex !important;
+  }
+
+  
+  #headerControls {
+    gap: 0.5rem;
+  }
+}
+
+

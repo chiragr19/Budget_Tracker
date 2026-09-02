@@ -12,9 +12,12 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^4.3.0",
+    "tailwindcss": "^4.3.3",
     "vite": "^6.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
   }
 }
-
-
