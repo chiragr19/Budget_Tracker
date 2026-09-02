@@ -101,7 +101,7 @@ function EntryForm({ formValues, onChange, onSubmit, editingId, onCancel }) {
         <div className="flex justify-center items-center gap-3">
           <button
             type="submit"
-            className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold rounded-lg cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+            className="px-6 py-3 bg-linear-to-r from-indigo-500 to-purple-600 text-white font-semibold rounded-lg cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
           >
             {editingId ? 'Update Entry' : 'Add Entry'}
           </button>
